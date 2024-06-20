@@ -1,0 +1,767 @@
+/* This function performs multiple items. 
+1. It creates the custom menu to generate Reservations/External tool scripts.
+2. It updates daily with the booking limits for General/Wedding events by providing the date you can book out to.
+3. It auto-moves to the current date in the sheet to prevent long amounts of scrolling when you have 400+ entries.
+*/
+function onOpen() {
+
+  currentHop();
+  toolsMenu();
+  bookingLimit();
+  //changelog();
+ }
+function currentHop() {
+  /* version 1.1, written by --Hyde 5 March 2020
+  /  - add sheetName, dateColumn
+  /  - use value.getTime to check that dateColumn contains dates
+  /  - find today instead of tomorrow
+  /  - use descriptive variable names
+  /  - see https://support.google.com/docs/thread/32097728?msgid=32396362
+  / version 1.0, written by AD:AM 15 May 2019
+  /  - initial version
+  /  - see https://support.google.com/docs/thread/6074864?msgid=6156095
+  
+  ////////////////////////////////
+  // [START modifiable parameters]*/
+  var sheetName = 'FY 23-24';
+  var dateColumn = 1; // A = 1, B = 2, etc.
+  /* [END modifiable parameters]
+  //////////////////////////////*/
+  
+  var sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  var values = sheet.getDataRange().getValues();
+  var now = new Date();
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  for (var i = 0, length = values.length; i < length; i++) {
+    var value = values[i][dateColumn - 1];
+    if (value.getTime && value.getTime() >= today) {
+      sheet.getRange(i + 1, dateColumn).activate();
+      break;
+    }
+  }
+  }
+function toolsMenu() {
+  var sub1Menu = SpreadsheetApp.getUi().createMenu('What type of Reservation?')
+  .addItem('Regular - Single Day Reservation', 'singleDayRegularReservation')
+  .addItem('Regular - Multi-Day Reservation', 'multiDayRegularReservation')
+  .addItem('School/County - Single Day Reservation', 'singleDaySorCReservation')
+  .addItem('School/County - Multi-Day Reservation', 'multiDaySorCReservation')
+
+  var subMenu = SpreadsheetApp.getUi().createMenu('External Site Tools')
+    .addItem('3 Month Calendar Update','sync')
+    .addItem('County Website Calendar Upload','organizeData');
+
+  var topMenu = SpreadsheetApp.getUi().createMenu('Civic Center Tools')
+    .addSubMenu(subMenu)
+    .addSubMenu(sub1Menu);
+  topMenu.addToUi();
+  }
+function changelog() {
+  Utilities.sleep(10);
+  SpreadsheetApp.getActiveSpreadsheet().toast("FY 23-24 Tracker Log: \n\t 1. Renamed the 'Civic Center Tools Menu' and organized the buttons. \n\t 2. Created 2 different versions of each contract. Self-explanatory when viewing in the menu. \n\t 3. Updated the CivicPlus Calendar Generator to only pull and create for events that are deemed 'Open to the Public'.", '⚙️FY 23-24 Changelog:',20);
+  }
+
+function bookingLimit() {
+  var today = new Date();
+  var generalEventLimit = new Date(today);
+  var weddingEventLimit = new Date(today);
+  
+  // Set the limit for general events to today + 180 days
+  generalEventLimit.setDate(today.getDate() + 180);
+  
+  // Set the limit for wedding events to today + 365 days
+  weddingEventLimit.setDate(today.getDate() + 365);
+  
+  // Format the date limits as strings
+  var generalEventLimitStr = Utilities.formatDate(generalEventLimit, Session.getScriptTimeZone(), 'MMMM dd, yyyy');
+  var weddingEventLimitStr = Utilities.formatDate(weddingEventLimit, Session.getScriptTimeZone(), 'MMMM dd, yyyy');
+  
+  // Create the alert message
+  var message = "General Events: " + generalEventLimitStr + "." +
+                "Weddings & Expos:" + weddingEventLimitStr + ".";
+  
+  // Show the alert
+  SpreadsheetApp.getActiveSpreadsheet().toast(message,'⏰Booking Limits:',10);
+  }
+
+function singleDayRegularReservation() {
+  const googleDocTemplate = DriveApp.getFileById('10I0SXW-zwIZC-qDyPUzL1z2NFKRZjNjeBKHWkOJ-d5A');
+  
+  const destinationFolder = DriveApp.getFolderById('16iZZ3DpddfSoGfLqw2g9MzG9Z3tWbnL2')
+  
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName('FY 23-24')
+  
+  //Here, we limit the data we are retrieving from the document. You MUST have the complete rows[0] selected to retrieve all of the information for the document to generate properly.
+  var currentCell = sheet.getCurrentCell();
+  var selectedRow = currentCell.getRow();
+  var rowRange = sheet.getRange(selectedRow, 1, 1, sheet.getLastColumn());
+  const rows = sheet.setActiveRange(rowRange).getValues();
+  //This is so that we are only looking at the single row we've selected.
+  var active_range = sheet.getActiveRange();
+  Logger.log(rows)
+
+  //Here we format all of the dates and times that we use below.
+  var date = Utilities.formatDate(new Date(), "GMT", "MM/dd/YYYY");
+  const eventdate = Utilities.formatDate(new Date(rows[0][0]), "America/New_York", "MM/dd/YYYY");
+  const btimefrom = Utilities.formatDate(new Date(rows[0][11]), "America/New_York", "h:mm a");
+  const btimeto = Utilities.formatDate(new Date(rows[0][12]), "America/New_York", "h:mm a");
+  const etimefrom = Utilities.formatDate(new Date(rows[0][13]), "America/New_York", "h:mm a");
+  const etimeto = Utilities.formatDate(new Date(rows[0][14]), "America/New_York", "h:mm a");
+  const depdate = Utilities.formatDate(new Date(rows[0][24]), "GMT", "MM/dd/YYYY")
+
+
+      //Here we check to make sure the event has a status (Confirmed, Inquiry, Tentative) and that a document has NOT been generated for it.
+    if (rows[0][3] == "EXPIRED" ||rows[0][3] == "CANCELLED" ) return;
+    if (rows[0][37]) return;
+    
+
+    //Using the rows[0] data in a template literal below, we make a copy of our template document in our destination folder.
+    // It should look similar to this example:
+    // 09/24/2023 (Event Name) Reservation Agreement on 09/11/2023
+    const copy = googleDocTemplate.makeCopy(` ${eventdate} ${rows[0][4]} Reservation Agreement on ${date}` , destinationFolder)
+    Logger.log(copy);
+    
+    //Once we have the copy, we then open it using the DocumentApp
+    const doc = DocumentApp.openById(copy.getId())
+    
+    //Some of the content lives in the HeaderSection, so we get that for editing:
+    const header = doc.getHeader();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+
+    //We then change to the body of the document. Most of the content lives in the body, so we get that for editing:
+    const body = doc.getBody();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+    body.replaceText('{{TDate}}', date);
+    body.replaceText('{{Booked Time from:}}', btimefrom);
+    body.replaceText('{{Booked Time to:}}', btimeto);
+    body.replaceText('{{Day}}', Utilities.formatDate(new Date(rows[0][1]), "America/New_York", "E"));
+    body.replaceText('{{EDate}}', eventdate);
+
+
+    body.replaceText('{{Event Name}}', rows[0][4]);
+    body.replaceText('{{BR1}}', rows[0][5]);
+    body.replaceText('{{BR2}}', rows[0][6]);
+    body.replaceText('{{BR3}}', rows[0][7]);
+    body.replaceText('{{TH}}', rows[0][8]);
+    body.replaceText('{{ROT}}', rows[0][9]);
+    body.replaceText('{{CON}}', rows[0][10]);
+    body.replaceText('{{Event Time from:}}', etimefrom);
+    body.replaceText('{{Event Time to:}}', etimeto);
+    body.replaceText('{{Responsible}}', rows[0][16]);
+    body.replaceText('{{Sponsor}}', rows[0][17]);
+    body.replaceText('{{Email}}', rows[0][18]);
+    body.replaceText('{{Phone}}', rows[0][19]);
+    body.replaceText('{{Address}}', rows[0][20]);
+    body.replaceText('{{EAttend}}', rows[0][21]);
+    if (rows[0][22] == "0"||rows[0][22] == "n/a"||rows[0][22] == "N/A") 
+      body.replaceText('{{Deposit}}',' ')
+      else
+      body.replaceText('{{Deposit}}','$'+rows[0][22]);
+    if (rows[0][23] == "n/a"||rows[0][23] == "N/A")
+      body.replaceText('{{Deposit Payment Method}}',' ')
+      else
+      body.replaceText('{{Deposit Payment Method}}', rows[0][23]);
+    if (depdate == '01/01/1970'||depdate == null) 
+      body.replaceText('{{Deposit Date Received}}',' ')
+      else
+      body.replaceText('{{Deposit Date Received}}', depdate);
+    body.replaceText('{{Rental Rate}}', rows[0][25]);
+    body.replaceText('{{Rental Rate Notes}}', rows[0][26]);
+    body.replaceText('{{Food}}', rows[0][27]);
+    body.replaceText('{{Alcohol}}', rows[0][28]);
+    if (rows[0][29] == null)
+    {
+      sheet.getRange(active_range.getRowIndex(), 28).setValue(' ');
+    }
+    body.replaceText('{{AV}}', rows[0][29])
+    body.replaceText('{{Security}}', rows[0][30]);
+    body.replaceText('{{Security Rate}}', rows[0][31]);
+    body.replaceText('{{Contract Cleaning}}', rows[0][32]);
+    body.replaceText('{{Cleaning Rate}}', rows[0][33]);
+    body.replaceText('{{TOTAL RATE}}', rows[0][34]);
+    body.replaceText('{{Other Notes}}', rows[0][35]);
+      if (rows[0][36] == null)
+      {
+        sheet.getRange(active_range.getRowIndex(), 36).setValue('0');
+      }
+    body.replaceText('{{Other Rate}}', rows[0][36]);
+
+    //We make our changes permanent by saving and closing the document
+    doc.saveAndClose();
+    //Store the url of our new document in a variable
+    const url = doc.getUrl();
+    Logger.log(url);
+    //Write that value back to the 'Document Link' column in the spreadsheet. 
+    // - Need to figure out how to write the URL to specific cell in 
+    var active_range = sheet.getActiveRange();
+    var value = sheet.getRange(active_range.getRowIndex(), 38).setValue(url);
+  }
+
+function singleDaySorCReservation() {
+  const googleDocTemplate = DriveApp.getFileById('1wo6xhEgTaYfUxmfxqCRzwRVU6yvt3obZM2t6S0BtSXI');
+  
+  const destinationFolder = DriveApp.getFolderById('16iZZ3DpddfSoGfLqw2g9MzG9Z3tWbnL2')
+  
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName('FY 23-24')
+  
+  //This piece of code below is what will select the full Row to use the data in transfer to the Google Doc.
+  var currentCell = sheet.getCurrentCell();
+  var selectedRow = currentCell.getRow();
+  var rowRange = sheet.getRange(selectedRow, 1, 1, sheet.getLastColumn());
+  const rows = sheet.setActiveRange(rowRange).getValues();
+  //This is so that we are only looking at the single row we've selected.
+  var active_range = sheet.getActiveRange();
+  Logger.log(rows)
+
+  //Here we format all of the dates and times that we use below.
+  var date = Utilities.formatDate(new Date(), "GMT", "MM/dd/YYYY");
+  const eventdate = Utilities.formatDate(new Date(rows[0][0]), "America/New_York", "MM/dd/YYYY");
+  const btimefrom = Utilities.formatDate(new Date(rows[0][11]), "America/New_York", "h:mm a");
+  const btimeto = Utilities.formatDate(new Date(rows[0][12]), "America/New_York", "h:mm a");
+  const etimefrom = Utilities.formatDate(new Date(rows[0][13]), "America/New_York", "h:mm a");
+  const etimeto = Utilities.formatDate(new Date(rows[0][14]), "America/New_York", "h:mm a");
+  const depdate = Utilities.formatDate(new Date(rows[0][24]), "GMT", "MM/dd/YYYY")
+
+
+      //Here we check to make sure the event has a status (Confirmed, Inquiry, Tentative) and that a document has NOT been generated for it.
+    if (rows[0][3] == "EXPIRED" ||rows[0][3] == "CANCELLED" ) return;
+    if (rows[0][37]) return;
+    
+
+    //Using the rows[0] data in a template literal below, we make a copy of our template document in our destination folder.
+    // It should look similar to this example:
+    // 09/24/2023 (Event Name) Reservation Agreement on 09/11/2023
+    const copy = googleDocTemplate.makeCopy(` ${eventdate} ${rows[0][4]} Reservation Agreement on ${date}` , destinationFolder)
+    Logger.log(copy);
+    
+    //Once we have the copy, we then open it using the DocumentApp
+    const doc = DocumentApp.openById(copy.getId())
+    
+    //Some of the content lives in the HeaderSection, so we get that for editing:
+    const header = doc.getHeader();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+
+    //We then change to the body of the document. Most of the content lives in the body, so we get that for editing:
+    const body = doc.getBody();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+    body.replaceText('{{TDate}}', date);
+    body.replaceText('{{Booked Time from:}}', btimefrom);
+    body.replaceText('{{Booked Time to:}}', btimeto);
+    body.replaceText('{{Day}}', Utilities.formatDate(new Date(rows[0][1]), "America/New_York", "E"));
+    body.replaceText('{{EDate}}', eventdate);
+
+
+    body.replaceText('{{Event Name}}', rows[0][4]);
+    body.replaceText('{{BR1}}', rows[0][5]);
+    body.replaceText('{{BR2}}', rows[0][6]);
+    body.replaceText('{{BR3}}', rows[0][7]);
+    body.replaceText('{{TH}}', rows[0][8]);
+    body.replaceText('{{ROT}}', rows[0][9]);
+    body.replaceText('{{CON}}', rows[0][10]);
+    body.replaceText('{{Event Time from:}}', etimefrom);
+    body.replaceText('{{Event Time to:}}', etimeto);
+    body.replaceText('{{Responsible}}', rows[0][16]);
+    body.replaceText('{{Sponsor}}', rows[0][17]);
+    body.replaceText('{{Email}}', rows[0][18]);
+    body.replaceText('{{Phone}}', rows[0][19]);
+    body.replaceText('{{Address}}', rows[0][20]);
+    body.replaceText('{{EAttend}}', rows[0][21]);
+    body.replaceText('{{Deposit}}', '$'+rows[0][22]);
+    body.replaceText('{{Deposit Payment Method}}', rows[0][23]);
+    body.replaceText('{{Deposit Date Received}}', depdate);
+    body.replaceText('{{Rental Rate}}', rows[0][25]);
+    body.replaceText('{{Rental Rate Notes}}', rows[0][26]);
+    body.replaceText('{{Food}}', rows[0][27]);
+    body.replaceText('{{Alcohol}}', rows[0][28]);
+    if (rows[0][29] == null)
+    {
+      sheet.getRange(active_range.getRowIndex(), 28).setValue('N/A');
+    }
+    body.replaceText('{{AV}}', rows[0][29])
+    body.replaceText('{{Security}}', rows[0][30]);
+    body.replaceText('{{Security Rate}}', rows[0][31]);
+    body.replaceText('{{Contract Cleaning}}', rows[0][32]);
+    body.replaceText('{{Cleaning Rate}}', rows[0][33]);
+    body.replaceText('{{TOTAL RATE}}', rows[0][34]);
+    body.replaceText('{{Other Notes}}', rows[0][35]);
+      if (rows[0][36] == null)
+      {
+        sheet.getRange(active_range.getRowIndex(), 36).setValue('0');
+      }
+    body.replaceText('{{Other Rate}}', rows[0][36]);
+
+    //We make our changes permanent by saving and closing the document
+    doc.saveAndClose();
+    //Store the url of our new document in a variable
+    const url = doc.getUrl();
+    Logger.log(url);
+    //Write that value back to the 'Document Link' column in the spreadsheet. 
+    // - Need to figure out how to write the URL to specific cell in 
+    var active_range = sheet.getActiveRange();
+    var value = sheet.getRange(active_range.getRowIndex(), 38).setValue(url);
+  }
+
+function multiDaySorCReservation() {
+  const googleDocTemplate = DriveApp.getFileById('18-bCl8weiNbepzgvlboc0Mq_UPQDhkiWDQD23Ho9x48');
+  
+  const destinationFolder = DriveApp.getFolderById('16iZZ3DpddfSoGfLqw2g9MzG9Z3tWbnL2')
+  
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName('FY 23-24')
+  
+  
+
+  //This piece of code below is what will select the full Row to use the data in transfer to the Google Doc.
+  var currentCell = sheet.getCurrentCell();
+  var selectedRow = currentCell.getRow();
+  var rowRange = sheet.getRange(selectedRow, 1, 1, sheet.getLastColumn());
+  const rows = sheet.setActiveRange(rowRange).getValues();
+  //This is so that we are only looking at the single row we've selected.
+  var active_range = sheet.getActiveRange();
+  Logger.log(rows)
+
+  //Here we format all of the dates and times that we use below.
+  var date = Utilities.formatDate(new Date(), "GMT", "MM/dd/YYYY");
+  const eventdate = Utilities.formatDate(new Date(rows[0][0]), "America/New_York", "MM/dd/YYYY");
+  const btimefrom = Utilities.formatDate(new Date(rows[0][11]), "America/New_York", "h:mm a");
+  const btimeto = Utilities.formatDate(new Date(rows[0][12]), "America/New_York", "h:mm a");
+  const etimefrom = Utilities.formatDate(new Date(rows[0][13]), "America/New_York", "h:mm a");
+  const etimeto = Utilities.formatDate(new Date(rows[0][14]), "America/New_York", "h:mm a");
+  const depdate = Utilities.formatDate(new Date(rows[0][24]), "GMT", "MM/dd/YYYY")
+  
+  const ui = SpreadsheetApp.getUi()  
+  var response = ui.prompt('Enter the starting date for this Reservation');
+  var eDate1 = Utilities.formatDate(new Date(response.getResponseText()),"America/New_York", "MM/dd/YYYY");
+  var eresponse = ui.prompt('Enter the ending date for this Reservation');
+  var eDate2 = Utilities.formatDate(new Date(eresponse.getResponseText()),"America/New_York", "MM/dd/YYYY");
+  Logger.log(eDate1)
+  Logger.log(eDate2)
+
+      //Here we check to make sure the event has a status (Confirmed, Inquiry, Tentative) and that a document has NOT been generated for it.
+    if (rows[0][3] == "EXPIRED" ||rows[0][3] == "CANCELLED" ) return;
+    if (rows[0][37]) return;
+    
+
+    //Using the rows[0] data in a template literal below, we make a copy of our template document in our destination folder.
+    // It should look similar to this example:
+    // 09/24/2023 (Event Name) Reservation Agreement on 09/11/2023
+    const copy = googleDocTemplate.makeCopy(` ${eventdate} ${rows[0][4]} Reservation Agreement on ${date}` , destinationFolder)
+    Logger.log(copy);
+    
+    //Once we have the copy, we then open it using the DocumentApp
+    const doc = DocumentApp.openById(copy.getId())
+    
+    //Some of the content lives in the HeaderSection, so we get that for editing:
+    const header = doc.getHeader();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+
+    //We then change to the body of the document. Most of the content lives in the body, so we get that for editing:
+    const body = doc.getBody();
+    //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+    body.replaceText('{{TDate}}', date);
+    body.replaceText('{{Booked Time from:}}', btimefrom);
+    body.replaceText('{{Booked Time to:}}', btimeto);
+    body.replaceText('{{Day}}', Utilities.formatDate(new Date(rows[0][1]), "America/New_York", "E"));
+    body.replaceText('{{EDate}}', eDate1);
+    body.replaceText('{{EDate2}}', eDate2);
+
+
+    body.replaceText('{{Event Name}}', rows[0][4]);
+    body.replaceText('{{BR1}}', rows[0][5]);
+    body.replaceText('{{BR2}}', rows[0][6]);
+    body.replaceText('{{BR3}}', rows[0][7]);
+    body.replaceText('{{TH}}', rows[0][8]);
+    body.replaceText('{{ROT}}', rows[0][9]);
+    body.replaceText('{{CON}}', rows[0][10]);
+    body.replaceText('{{Event Time from:}}', etimefrom);
+    body.replaceText('{{Event Time to:}}', etimeto);
+    body.replaceText('{{Responsible}}', rows[0][16]);
+    body.replaceText('{{Sponsor}}', rows[0][17]);
+    body.replaceText('{{Email}}', rows[0][18]);
+    body.replaceText('{{Phone}}', rows[0][19]);
+    body.replaceText('{{Address}}', rows[0][20]);
+    body.replaceText('{{EAttend}}', rows[0][21]);
+    body.replaceText('{{Deposit}}', '$'+rows[0][22]);
+    body.replaceText('{{Deposit Payment Method}}', rows[0][23]);
+    body.replaceText('{{Deposit Date Received}}', depdate);
+    body.replaceText('{{Rental Rate}}', rows[0][25]);
+    body.replaceText('{{Rental Rate Notes}}', rows[0][26]);
+    body.replaceText('{{Food}}', rows[0][27]);
+    body.replaceText('{{Alcohol}}', rows[0][28]);
+    if (rows[0][29] == null)
+    {
+      sheet.getRange(active_range.getRowIndex(), 28).setValue('N/A');
+    }
+    body.replaceText('{{AV}}', rows[0][29])
+    body.replaceText('{{Security}}', rows[0][30]);
+    body.replaceText('{{Security Rate}}', rows[0][31]);
+    body.replaceText('{{Contract Cleaning}}', rows[0][32]);
+    body.replaceText('{{Cleaning Rate}}', rows[0][33]);
+    body.replaceText('{{TOTAL RATE}}', rows[0][34]);
+    body.replaceText('{{Other Notes}}', rows[0][35]);
+      if (rows[0][36] == null)
+      {
+        sheet.getRange(active_range.getRowIndex(), 36).setValue('0');
+      }
+    body.replaceText('{{Other Rate}}', rows[0][36]);
+
+    //We make our changes permanent by saving and closing the document
+    doc.saveAndClose();
+    //Store the url of our new document in a variable
+    const url = doc.getUrl();
+    Logger.log(url);
+    //Write that value back to the 'Document Link' column in the spreadsheet. 
+    // - Need to figure out how to write the URL to specific cell in 
+    var active_range = sheet.getActiveRange();
+    var value = sheet.getRange(active_range.getRowIndex(), 38).setValue(url);
+  }
+
+function multiDayRegularReservation() {
+  const googleDocTemplate = DriveApp.getFileById('1e7X9hNjydMsZXa4s2m-VST0QjzFyWLgZhYMCmaTiQBU');
+  
+  const destinationFolder = DriveApp.getFolderById('16iZZ3DpddfSoGfLqw2g9MzG9Z3tWbnL2')
+  
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName('FY 23-24')
+  
+  //This piece of code below is what will select the full Row to use the data in transfer to the Google Doc.
+  var currentCell = sheet.getCurrentCell();
+  var selectedRow = currentCell.getRow();
+  var rowRange = sheet.getRange(selectedRow, 1, 1, sheet.getLastColumn());
+  const rows = sheet.setActiveRange(rowRange).getValues();
+  //This is so that we are only looking at the single row we've selected.
+  var active_range = sheet.getActiveRange();
+  Logger.log(rows)
+
+  //Here we format all of the dates and times that we use below.
+  var date = Utilities.formatDate(new Date(), "GMT", "MM/dd/YYYY");
+  const eventdate = Utilities.formatDate(new Date(rows[0][0]), "America/New_York", "MM/dd/YYYY");
+  const btimefrom = Utilities.formatDate(new Date(rows[0][11]), "America/New_York", "h:mm a");
+  const btimeto = Utilities.formatDate(new Date(rows[0][12]), "America/New_York", "h:mm a");
+  const etimefrom = Utilities.formatDate(new Date(rows[0][13]), "America/New_York", "h:mm a");
+  const etimeto = Utilities.formatDate(new Date(rows[0][14]), "America/New_York", "h:mm a");
+  const depdate = Utilities.formatDate(new Date(rows[0][24]), "GMT", "MM/dd/YYYY")
+  
+  const ui = SpreadsheetApp.getUi()  
+  var response = ui.prompt('Enter the starting date for this Reservation');
+  var eDate1 = Utilities.formatDate(new Date(response.getResponseText()),"America/New_York", "MM/dd/YYYY");
+  var eresponse = ui.prompt('Enter the ending date for this Reservation');
+  var eDate2 = Utilities.formatDate(new Date(eresponse.getResponseText()),"America/New_York", "MM/dd/YYYY");
+  Logger.log(eDate1)
+  Logger.log(eDate2)
+
+  //Here we check to make sure the event has a status (Confirmed, Inquiry, Tentative) and that a document has NOT been generated for it.
+  if (rows[0][3] == "EXPIRED" ||rows[0][3] == "CANCELLED" ) return;
+  if (rows[0][37]) return;
+  
+
+  //Using the rows[0] data in a template literal below, we make a copy of our template document in our destination folder.
+  // It should look similar to this example:
+  // 09/24/2023 (Event Name) Reservation Agreement on 09/11/2023
+  const copy = googleDocTemplate.makeCopy(` ${eventdate} ${rows[0][4]} Reservation Agreement on ${date}` , destinationFolder)
+  Logger.log(copy);
+  
+  //Once we have the copy, we then open it using the DocumentApp
+  const doc = DocumentApp.openById(copy.getId())
+  
+  //Some of the content lives in the HeaderSection, so we get that for editing:
+  const header = doc.getHeader();
+  //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+
+  //We then change to the body of the document. Most of the content lives in the body, so we get that for editing:
+  const body = doc.getBody();
+  //In these lines, we replace our replacement tokens with values from our spreadsheet rows[0]:
+
+  body.replaceText('{{TDate}}', date);
+  body.replaceText('{{Booked Time from:}}', btimefrom);
+  body.replaceText('{{Booked Time to:}}', btimeto);
+  body.replaceText('{{Day}}', Utilities.formatDate(new Date(rows[0][1]), "America/New_York", "E"));
+  body.replaceText('{{EDate}}', eDate1);
+  body.replaceText('{{EDate2}}', eDate2);
+
+  body.replaceText('{{Event Name}}', rows[0][4]);
+  body.replaceText('{{BR1}}', rows[0][5]);
+  body.replaceText('{{BR2}}', rows[0][6]);
+  body.replaceText('{{BR3}}', rows[0][7]);
+  body.replaceText('{{TH}}', rows[0][8]);
+  body.replaceText('{{ROT}}', rows[0][9]);
+  body.replaceText('{{CON}}', rows[0][10]);
+  body.replaceText('{{Event Time from:}}', etimefrom);
+  body.replaceText('{{Event Time to:}}', etimeto);
+  body.replaceText('{{Responsible}}', rows[0][16]);
+  body.replaceText('{{Sponsor}}', rows[0][17]);
+  body.replaceText('{{Email}}', rows[0][18]);
+  body.replaceText('{{Phone}}', rows[0][19]);
+  body.replaceText('{{Address}}', rows[0][20]);
+  body.replaceText('{{EAttend}}', rows[0][21]);
+  body.replaceText('{{Deposit}}', '$'+rows[0][22]);
+  body.replaceText('{{Deposit Payment Method}}', rows[0][23]);
+  body.replaceText('{{Deposit Date Received}}', depdate);
+  body.replaceText('{{Rental Rate}}', rows[0][25]);
+  body.replaceText('{{Rental Rate Notes}}', rows[0][26]);
+  body.replaceText('{{Food}}', rows[0][27]);
+  body.replaceText('{{Alcohol}}', rows[0][28]);
+  if (rows[0][29] == null)
+  {
+    sheet.getRange(active_range.getRowIndex(), 28).setValue('N/A');
+  }
+  body.replaceText('{{AV}}', rows[0][29])
+  body.replaceText('{{Security}}', rows[0][30]);
+  body.replaceText('{{Security Rate}}', rows[0][31]);
+  body.replaceText('{{Contract Cleaning}}', rows[0][32]);
+  body.replaceText('{{Cleaning Rate}}', rows[0][33]);
+  body.replaceText('{{TOTAL RATE}}', rows[0][34]);
+  body.replaceText('{{Other Notes}}', rows[0][35]);
+    if (rows[0][36] == null)
+    {
+      sheet.getRange(active_range.getRowIndex(), 36).setValue('0');
+    }
+  body.replaceText('{{Other Rate}}', rows[0][36]);
+
+  //We make our changes permanent by saving and closing the document
+  doc.saveAndClose();
+  //Store the url of our new document in a variable
+  const url = doc.getUrl();
+  Logger.log(url);
+  //Write that value back to the 'Document Link' column in the spreadsheet. 
+  // - Need to figure out how to write the URL to specific cell in 
+  var active_range = sheet.getActiveRange();
+  var value = sheet.getRange(active_range.getRowIndex(), 38).setValue(url);
+  }
+
+// Function to replace school names
+function replaceSchoolNames(originalString) {
+  // Replace school names as needed
+  originalString = originalString.replace("BOE/OCPS", "Oconee County Primary School: ");
+  originalString = originalString.replace("BOE/OCES", "Oconee County Elementary School: ");
+  originalString = originalString.replace("BOE/CFES", "Colham Ferry Elementary School: ");
+  originalString = originalString.replace("BOE/DCES", "Dove Creek Elementary School: ");
+  originalString = originalString.replace("BOE/HSES", "High Schoals Elementary School: ");
+  originalString = originalString.replace("BOE/MBES", "Malcom Bridge Elementary School: ");
+  originalString = originalString.replace("BOE/RBES", "Rocky Branch Elementary School: ");
+  originalString = originalString.replace("BOE/DCMS", "Dove Creek Middle School: ");
+  originalString = originalString.replace("BOE/MBMS", "Malcom Bridge Middle School: ");
+  originalString = originalString.replace("BOE/OCMS", "Oconee County Middle School: ");
+  originalString = originalString.replace("BOE/OCHS", "Oconee County High School: ");
+  originalString = originalString.replace("BOE/NOHS", "North Oconee High School: ");
+  originalString = originalString.replace("BOE/Transportation", "Oconee County Schools Transportation: ");
+  originalString = originalString.replace("BOE/Ext. Services 4-H", "Oconee County Extension Office 4-H: ");
+  originalString = originalString.replace("BOE/4H", "Oconee County Extension Office 4-H: ");
+  originalString = originalString.replace("BOC/Library", "Oconee County Library: ");
+
+  originalString = originalString.replace("BOE/", "Board of Education: ");  
+  originalString = originalString.replace("BOC/", "Board of Commissioners: ");
+  
+  return originalString;
+  }
+
+//This stays outside of functions because it is necessary for the sync & organizedata functions to remove BOE or BOC from the database.
+var today = new Date();
+var twoweeks = new Date();
+var twoweeks = new Date(twoweeks.setDate(twoweeks.getDate() + 90));
+var testtime = new Date();
+var testtime = new Date(testtime.setDate(testtime.getDate() + 3))
+function sync() {
+  var calendarId = 'f7250c4f73a682f0002d802d4ec064c3d6f071e47e9c9ee19ff4634e48288409@group.calendar.google.com'; // Please set your calendar ID.
+  var sheet = SpreadsheetApp.getActive().getSheetByName('FY 23-24');
+  const calendar = CalendarApp.getCalendarById(calendarId);
+
+  var startRow = 2;  // First row from which data should process > 2 exempts my header row
+  var numRows = sheet.getLastRow();   // Number of rows to process
+  var numColumns = sheet.getLastColumn();
+  var dataRange = sheet.getRange(startRow, 1, numRows - 1, numColumns);
+  var data = dataRange.getDisplayValues();
+
+
+
+  for (var i = 0; i < data.length; ++i) 
+  {
+    var row = data[i];
+    var eventdate = new Date(row[0]);  // The date of the Event
+    var status = row[3];  // (Confirmed, Tentative, Inquiry, Cancelled)
+    var depositdate = row[24]; // Date the deposit was received   
+    var eventgeneratedcheck = row[41]; // Event created and EventID (iCalUID) populated
+
+    // Your name replacement function here
+    row[4] = replaceSchoolNames(row[4]);
+
+    // I modified below script.
+    if (eventdate < today) continue;
+    if (eventdate > twoweeks) continue;
+    if (depositdate == null) continue;
+
+        var startTime = new Date(row[0] +" "+row[11]);
+        var endTime = new Date(row[0] +" "+row[12]);
+  
+    if (status == "CONFIRMED" && eventgeneratedcheck == "") {
+      if (row[11] && row[12]) {
+        try {
+          Logger.log(row[4]);
+          var currentCell = sheet.getRange(startRow + i, numColumns-1);
+
+          var startTime = new Date(row[0] +" "+row[11]);
+          var endTime = new Date(row[0] +" "+row[12]);
+          var eventTitle = row[4];
+          var event = calendar.createEvent(eventTitle, startTime, endTime, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+          var eventId = event.getId();
+          currentCell.setValue(eventId);
+          } catch (error) {
+          var dayplusone = new Date(endTime.setDate(endTime.getDate() + 1));
+          var eventTitle = row[4];
+          var event = calendar.createEvent(eventTitle, startTime, dayplusone, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+          var eventId = event.getId();
+          currentCell.setValue(eventId);
+        }
+        } else {
+          var currentCell = sheet.getRange(startRow + i, numColumns-1);
+          var eventTitle = row[4];
+          var event = calendar.createAllDayEvent(eventTitle, eventdate, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+          var eventId = event.getId();
+          currentCell.setValue(eventId);
+      }
+    } else if (status == "CONFIRMED" && eventgeneratedcheck != "") {
+      try {
+        var currentCell = sheet.getRange(startRow + i, numColumns-1);
+        var eventgeneratedcheck = eventgeneratedcheck.split("@")[0];
+        calendar.getEventById(eventgeneratedcheck).deleteEvent();
+        currentCell.clearContent();
+       } catch (error) {
+        continue
+       };
+      if (row[11] && row[12]) {
+        try {
+          Logger.log(row[4]);
+          var currentCell = sheet.getRange(startRow + i, numColumns-1);
+
+          var cstart = new Date(row[0] +" "+row[11]);
+          var cend = new Date(row[0] +" "+row[12]);
+          var eventTitle = row[4];
+          var event = calendar.createEvent(eventTitle, startTime, endTime, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+          var eventId = event.getId();
+          currentCell.setValue(eventId);
+          } catch (error) {
+          var dayplusone = new Date(endTime.setDate(endTime.getDate() + 1));
+          var eventTitle = row[4];
+          var event = calendar.createEvent(eventTitle, startTime, dayplusone, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+          var eventId = event.getId();
+          currentCell.setValue(eventId);
+        }
+      } else {
+        try {
+        var currentCell = sheet.getRange(startRow + i, numColumns-1);
+        var eventgeneratedcheck = eventgeneratedcheck.split("@")[0];
+        calendar.getEventById(eventgeneratedcheck).deleteEvent();
+        currentCell.clearContent();
+       } catch (error) {
+        continue
+       };
+        var currentCell = sheet.getRange(startRow + i, numColumns-1);
+        var eventTitle = row[4];
+        var event = calendar.createAllDayEvent(eventTitle, eventdate, { description: '\nEvent Start: ' + row[13] + '\nEvent End: ' + row[14] + '\nEstimated Attendance: ' + row[21] + '\nOther Notes: ' + row[35] + '\nAudio/Visual: ' + row[29] });
+        var eventId = event.getId();
+        currentCell.setValue(eventId);
+      }
+    }
+    if (status == "CANCELLED" || status == "MOVED" && eventgeneratedcheck != "") {
+      try {
+        var currentCell = sheet.getRange(startRow + i, numColumns-1);
+        var eventgeneratedcheck = eventgeneratedcheck.split("@")[0];
+        calendar.getEventById(eventgeneratedcheck).deleteEvent();
+        currentCell.clearContent();
+      } catch {
+        var currentCell = sheet.getRange(startRow + i, numColumns-1);
+        currentCell.clearContent();
+      }
+    }
+  }
+  }
+
+
+/* The following code is written to transfer data from the FY tab to the CivicPlus Events tab for transfer to the County Calendar */
+function organizeData() {
+  // Define your sheet names
+  var sourceSheetName = 'FY 23-24';
+  var targetSheetName = 'CivicPlus Events Setup';
+  
+  // Get the source and target sheets
+  var sourceSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sourceSheetName);
+  var targetSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(targetSheetName);
+  
+  // Clear the target sheet to start fresh
+  targetSheet.clear();
+
+  //Designate the header rows
+  var header = ["Calendar Name","Event Title","Event ID","Start Date","Start Time","End Date","End Time","Location","Address 1","Address 2","City","State","Zip Code","Link to Map","Open map in new window","Time Details","Cost","Description","Link (web address)","Link Text","Open link in new window","Agenda Link","Open agenda link in new window","Phone - Number","Email Address","Show Email As","Featured Event","ADA Option","Event Details","Display Start Date","Display Stop Date","Show in Widget","Related Calendars","Public Event"]
+  targetSheet.getRange(1, 1, 1, header.length).setValues([header]);
+  
+
+  // Get the current date
+  var currentDate = new Date();
+  
+  // Set the limit for events to today + 90 days
+  var civicDate = new Date();
+  civicDate.setDate(today.getDate() + 90);
+  
+  // Get the source data
+  var sourceData = sourceSheet.getDataRange().getValues();
+  
+
+  // Initialize an array to hold the filtered and formatted data
+  var newData = [];
+  
+  // Loop through the source data
+  for (var i = 2; i < sourceData.length; i++) {
+  var row = sourceData[i];;
+    
+    // Convert the date in column A to a Date object. Clear up the formats for event start and end time
+    var dateInColumnA = new Date(row[0]);
+    var etimefrom = Utilities.formatDate(new Date(row[13]), "America/New_York", "h:mm a");
+    var etimeto = Utilities.formatDate(new Date(row[14]), "America/New_York", "h:mm a");
+    // Check if the date is within the future 90 days. If it is not a Public Event, change the Event Title to "Private Event" otherwise leave it.
+    if (dateInColumnA >= currentDate && dateInColumnA <= civicDate && row[3] == "CONFIRMED") {
+      // Format the data and push it to the newData array
+      if (row[42] == "No") {
+        var formattedRow = [
+        "=IF(ISBLANK(B2), \"\", \"Oconee County Civic Center Events\")", // Column A's data in target sheet is left empty for a formula
+        "Private Event", // Column E's data placed in Column B
+        "", // Empty column
+        row[0], // Column A's data
+        row[13], // Column N's data
+        row[0], // Column A's data
+        row[14], // Column O's data
+        ]
+        newData.push(formattedRow)
+        } else if (row[42] == "Yes") {
+       var formattedRow = [
+        "=IF(ISBLANK(B2), \"\", \"Oconee County Civic Center Events\")",
+        row[4], // Column E's data
+        "", // Empty column
+        row[0], // Column A's data
+        etimefrom, // Column L's data
+        row[0], // Column A's data
+        etimeto, // Column M's data 
+      ]
+      newData.push(formattedRow);
+      }
+    }
+  }
+  // Write the newData array to the target sheet
+  targetSheet.getRange(2, 1, newData.length, newData[0].length).setValues(newData);
+  targetSheet.getRange(2, 28, targetSheet.getLastRow()).setValue("Yes");
+  targetSheet.getRange(2, 30, targetSheet.getLastRow()).setFormula("=D2-30");
+  targetSheet.getRange(2, 31, targetSheet.getLastRow()).setFormula("=F2+1");
+  targetSheet.getRange(2, 34, targetSheet.getLastRow()).setFormula("=IF(B2=\"Private Event\"\,\"No\"\,\"Yes\"\)");
+  }
